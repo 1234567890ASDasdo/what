@@ -1,0 +1,34 @@
+wait(3) -- 初始等待 3 秒
+
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- 提示玩家（反向控制）
+game.StarterGui:SetCore("SendNotification", {
+    Title = "哈哈！",
+    Text = "你被骗了！3秒后自动退出游戏！",
+    Duration = 3
+})
+
+-- 反向控制逻辑
+local connection
+connection = humanoid.Running:Connect(function(speed)
+    if speed > 0 then
+        humanoid:MoveTo(character.PrimaryPart.Position - character.PrimaryPart.CFrame.LookVector * 5)
+    end
+end)
+
+-- 3秒后强制踢出游戏
+wait(3)
+
+-- 停止反向控制
+connection:Disconnect()
+
+-- 尝试踢出玩家
+local function forceKick()
+    player:Kick("你已被踢出游戏！😂")
+end
+
+-- 防止错误
+pcall(forceKick)
