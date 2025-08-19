@@ -1,0 +1,30 @@
+-- 放在 ServerScriptService
+
+local SoundService = game:GetService("SoundService")
+local Players = game:GetService("Players")
+
+-- 创建并播放音乐
+local sound = Instance.new("Sound")
+sound.Name = "ServerMusic"
+sound.SoundId = "rbxassetid://116497979556639" -- 你给的音乐ID
+sound.Looped = true
+sound.Volume = 0.5
+sound.Parent = SoundService
+sound:Play()
+
+-- 玩家加入时通知
+Players.PlayerAdded:Connect(function(player)
+    -- 等待玩家加载好 PlayerGui
+    player.CharacterAdded:Wait()
+    local success, err = pcall(function()
+        player:WaitForChild("PlayerGui")
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "你被骗了😁",
+            Text = "3秒后消失",
+            Duration = 3
+        })
+    end)
+    if not success then
+        warn("通知失败: " .. tostring(err))
+    end
+end)
