@@ -1,0 +1,770 @@
+-- Roblox脚本卡密验证系统（整合WindUI界面）
+-- 作者: Claude AI助手
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- 配置
+local CONFIG = {
+    VALID_KEYS = {
+        "ROBLOX2024",
+        "SCRIPT123",
+        "PREMIUM456",
+        "VIP789",
+        "GOLD999"
+    },
+    ADMIN_PASSWORD = "ADMIN123",
+    MAX_ATTEMPTS = 3,
+    SCRIPT_NAME = "高级脚本工具"
+}
+
+-- 验证状态
+local authSystem = {
+    isAuthenticated = false,
+    currentUser = nil,
+    attempts = 0,
+    usedKeys = {},
+    isAdmin = false
+}
+
+-- 创建GUI函数
+local function createAuthGUI()
+    -- 主屏幕GUI
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "KeyAuthSystem"
+    screenGui.Parent = playerGui
+    screenGui.ResetOnSpawn = false
+    
+    -- 主框架
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 400, 0, 250)
+    mainFrame.Position = UDim2.new(0.5, -200, 0.5, -125)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    
+    -- 添加圆角
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+    
+    -- 标题
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "Title"
+    titleLabel.Size = UDim2.new(1, 0, 0, 50)
+    titleLabel.Position = UDim2.new(0, 0, 0, 0)
+    titleLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    titleLabel.Text = CONFIG.SCRIPT_NAME .. " - 卡密验证"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextSize = 18
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 12)
+    titleCorner.Parent = titleLabel
+    
+    -- 输入框
+    local keyInput = Instance.new("TextBox")
+    keyInput.Name = "KeyInput"
+    keyInput.Size = UDim2.new(0.8, 0, 0, 40)
+    keyInput.Position = UDim2.new(0.1, 0, 0.35, 0)
+    keyInput.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    keyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+    keyInput.PlaceholderText = "请输入卡密..."
+    keyInput.Text = ""
+    keyInput.TextSize = 16
+    keyInput.Font = Enum.Font.Gotham
+    keyInput.Parent = mainFrame
+    
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 6)
+    inputCorner.Parent = keyInput
+    
+    -- 验证按钮
+    local verifyButton = Instance.new("TextButton")
+    verifyButton.Name = "VerifyButton"
+    verifyButton.Size = UDim2.new(0.35, 0, 0, 40)
+    verifyButton.Position = UDim2.new(0.1, 0, 0.6, 0)
+    verifyButton.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+    verifyButton.Text = "验证"
+    verifyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    verifyButton.TextSize = 16
+    verifyButton.Font = Enum.Font.GothamBold
+    verifyButton.Parent = mainFrame
+    
+    local verifyCorner = Instance.new("UICorner")
+    verifyCorner.CornerRadius = UDim.new(0, 6)
+    verifyCorner.Parent = verifyButton
+    
+    -- 管理员按钮
+    local adminButton = Instance.new("TextButton")
+    adminButton.Name = "AdminButton"
+    adminButton.Size = UDim2.new(0.35, 0, 0, 40)
+    adminButton.Position = UDim2.new(0.55, 0, 0.6, 0)
+    adminButton.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+    adminButton.Text = "管理面板"
+    adminButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    adminButton.TextSize = 16
+    adminButton.Font = Enum.Font.GothamBold
+    adminButton.Parent = mainFrame
+    
+    local adminCorner = Instance.new("UICorner")
+    adminCorner.CornerRadius = UDim.new(0, 6)
+    adminCorner.Parent = adminButton
+    
+    -- 状态标签
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(0.8, 0, 0, 30)
+    statusLabel.Position = UDim2.new(0.1, 0, 0.8, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "请输入有效的卡密"
+    statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.Parent = mainFrame
+    
+    return screenGui, mainFrame, keyInput, verifyButton, adminButton, statusLabel
+end
+
+-- 创建管理面板
+local function createAdminPanel()
+    local adminGui = Instance.new("ScreenGui")
+    adminGui.Name = "AdminPanel"
+    adminGui.Parent = playerGui
+    adminGui.ResetOnSpawn = false
+    
+    -- 管理面板框架
+    local adminFrame = Instance.new("Frame")
+    adminFrame.Name = "AdminFrame"
+    adminFrame.Size = UDim2.new(0, 500, 0, 400)
+    adminFrame.Position = UDim2.new(0.5, -250, 0.5, -200)
+    adminFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    adminFrame.BorderSizePixel = 0
+    adminFrame.Parent = adminGui
+    
+    local adminCorner = Instance.new("UICorner")
+    adminCorner.CornerRadius = UDim.new(0, 12)
+    adminCorner.Parent = adminFrame
+    
+    -- 标题栏
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 50)
+    titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    titleBar.Parent = adminFrame
+    
+    local titleBarCorner = Instance.new("UICorner")
+    titleBarCorner.CornerRadius = UDim.new(0, 12)
+    titleBarCorner.Parent = titleBar
+    
+    local adminTitle = Instance.new("TextLabel")
+    adminTitle.Size = UDim2.new(0.8, 0, 1, 0)
+    adminTitle.BackgroundTransparency = 1
+    adminTitle.Text = "管理面板 - 卡密系统"
+    adminTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    adminTitle.TextSize = 18
+    adminTitle.Font = Enum.Font.GothamBold
+    adminTitle.TextXAlignment = Enum.TextXAlignment.Left
+    adminTitle.Parent = titleBar
+    
+    -- 关闭按钮
+    local closeButton = Instance.new("TextButton")
+    closeButton.Name = "CloseButton"
+    closeButton.Size = UDim2.new(0, 40, 0, 40)
+    closeButton.Position = UDim2.new(1, -45, 0, 5)
+    closeButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+    closeButton.Text = "X"
+    closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeButton.TextSize = 16
+    closeButton.Font = Enum.Font.GothamBold
+    closeButton.Parent = titleBar
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 6)
+    closeCorner.Parent = closeButton
+    
+    -- 统计信息
+    local statsFrame = Instance.new("Frame")
+    statsFrame.Name = "StatsFrame"
+    statsFrame.Size = UDim2.new(1, -20, 0, 100)
+    statsFrame.Position = UDim2.new(0, 10, 0, 60)
+    statsFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    statsFrame.Parent = adminFrame
+    
+    local statsCorner = Instance.new("UICorner")
+    statsCorner.CornerRadius = UDim.new(0, 8)
+    statsCorner.Parent = statsFrame
+    
+    local statsTitle = Instance.new("TextLabel")
+    statsTitle.Size = UDim2.new(1, 0, 0, 30)
+    statsTitle.BackgroundTransparency = 1
+    statsTitle.Text = "系统统计"
+    statsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statsTitle.TextSize = 16
+    statsTitle.Font = Enum.Font.GothamBold
+    statsTitle.Parent = statsFrame
+    
+    local statsText = Instance.new("TextLabel")
+    statsText.Name = "StatsText"
+    statsText.Size = UDim2.new(1, -10, 0, 60)
+    statsText.Position = UDim2.new(0, 5, 0, 30)
+    statsText.BackgroundTransparency = 1
+    statsText.Text = "总卡密数: " .. #CONFIG.VALID_KEYS .. "\n已使用: " .. #authSystem.usedKeys .. "\n当前用户: " .. (authSystem.currentUser or "无")
+    statsText.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statsText.TextSize = 14
+    statsText.Font = Enum.Font.Gotham
+    statsText.TextYAlignment = Enum.TextYAlignment.Top
+    statsText.TextXAlignment = Enum.TextXAlignment.Left
+    statsText.Parent = statsFrame
+    
+    -- 卡密管理
+    local keyManagementFrame = Instance.new("Frame")
+    keyManagementFrame.Name = "KeyManagementFrame"
+    keyManagementFrame.Size = UDim2.new(1, -20, 0, 200)
+    keyManagementFrame.Position = UDim2.new(0, 10, 0, 170)
+    keyManagementFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    keyManagementFrame.Parent = adminFrame
+    
+    local keyManagementCorner = Instance.new("UICorner")
+    keyManagementCorner.CornerRadius = UDim.new(0, 8)
+    keyManagementCorner.Parent = keyManagementFrame
+    
+    local keyManagementTitle = Instance.new("TextLabel")
+    keyManagementTitle.Size = UDim2.new(1, 0, 0, 30)
+    keyManagementTitle.BackgroundTransparency = 1
+    keyManagementTitle.Text = "卡密管理"
+    keyManagementTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    keyManagementTitle.TextSize = 16
+    keyManagementTitle.Font = Enum.Font.GothamBold
+    keyManagementTitle.Parent = keyManagementFrame
+    
+    -- 新卡密输入
+    local newKeyInput = Instance.new("TextBox")
+    newKeyInput.Name = "NewKeyInput"
+    newKeyInput.Size = UDim2.new(0.6, 0, 0, 35)
+    newKeyInput.Position = UDim2.new(0.05, 0, 0.2, 0)
+    newKeyInput.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    newKeyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+    newKeyInput.PlaceholderText = "输入新卡密..."
+    newKeyInput.Text = ""
+    newKeyInput.TextSize = 14
+    newKeyInput.Font = Enum.Font.Gotham
+    newKeyInput.Parent = keyManagementFrame
+    
+    local newKeyCorner = Instance.new("UICorner")
+    newKeyCorner.CornerRadius = UDim.new(0, 6)
+    newKeyCorner.Parent = newKeyInput
+    
+    -- 添加卡密按钮
+    local addKeyButton = Instance.new("TextButton")
+    addKeyButton.Name = "AddKeyButton"
+    addKeyButton.Size = UDim2.new(0.25, 0, 0, 35)
+    addKeyButton.Position = UDim2.new(0.7, 0, 0.2, 0)
+    addKeyButton.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+    addKeyButton.Text = "添加卡密"
+    addKeyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    addKeyButton.TextSize = 14
+    addKeyButton.Font = Enum.Font.GothamBold
+    addKeyButton.Parent = keyManagementFrame
+    
+    local addKeyCorner = Instance.new("UICorner")
+    addKeyCorner.CornerRadius = UDim.new(0, 6)
+    addKeyCorner.Parent = addKeyButton
+    
+    -- 卡密列表滚动框
+    local keyListFrame = Instance.new("ScrollingFrame")
+    keyListFrame.Name = "KeyListFrame"
+    keyListFrame.Size = UDim2.new(0.9, 0, 0.6, 0)
+    keyListFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
+    keyListFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    keyListFrame.ScrollBarThickness = 8
+    keyListFrame.Parent = keyManagementFrame
+    
+    local keyListCorner = Instance.new("UICorner")
+    keyListCorner.CornerRadius = UDim.new(0, 6)
+    keyListCorner.Parent = keyListFrame
+    
+    local keyListLayout = Instance.new("UIListLayout")
+    keyListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    keyListLayout.Padding = UDim.new(0, 2)
+    keyListLayout.Parent = keyListFrame
+    
+    return adminGui, adminFrame, closeButton, newKeyInput, addKeyButton, keyListFrame, statsText
+end
+
+-- 更新卡密列表显示
+local function updateKeyList(keyListFrame)
+    -- 清除现有子项
+    for _, child in pairs(keyListFrame:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+    
+    -- 添加每个卡密
+    for i, key in ipairs(CONFIG.VALID_KEYS) do
+        local keyItem = Instance.new("Frame")
+        keyItem.Name = "KeyItem_" .. i
+        keyItem.Size = UDim2.new(1, -10, 0, 30)
+        keyItem.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+        keyItem.Parent = keyListFrame
+        
+        local keyCorner = Instance.new("UICorner")
+        keyCorner.CornerRadius = UDim.new(0, 4)
+        keyCorner.Parent = keyItem
+        
+        local keyLabel = Instance.new("TextLabel")
+        keyLabel.Size = UDim2.new(0.7, 0, 1, 0)
+        keyLabel.BackgroundTransparency = 1
+        keyLabel.Text = key
+        keyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        keyLabel.TextSize = 12
+        keyLabel.Font = Enum.Font.Gotham
+        keyLabel.TextXAlignment = Enum.TextXAlignment.Left
+        keyLabel.Parent = keyItem
+        
+        local deleteButton = Instance.new("TextButton")
+        deleteButton.Size = UDim2.new(0.25, 0, 0.8, 0)
+        deleteButton.Position = UDim2.new(0.72, 0, 0.1, 0)
+        deleteButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        deleteButton.Text = "删除"
+        deleteButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        deleteButton.TextSize = 10
+        deleteButton.Font = Enum.Font.GothamBold
+        deleteButton.Parent = keyItem
+        
+        local deleteCorner = Instance.new("UICorner")
+        deleteCorner.CornerRadius = UDim.new(0, 4)
+        deleteCorner.Parent = deleteButton
+        
+        -- 删除按钮功能
+        deleteButton.MouseButton1Click:Connect(function()
+            table.remove(CONFIG.VALID_KEYS, i)
+            updateKeyList(keyListFrame)
+        end)
+    end
+    
+    keyListFrame.CanvasSize = UDim2.new(0, 0, 0, #CONFIG.VALID_KEYS * 32)
+end
+
+-- 显示通知
+local function showNotification(message, color)
+    local notification = Instance.new("ScreenGui")
+    notification.Name = "Notification"
+    notification.Parent = playerGui
+    
+    local notifFrame = Instance.new("Frame")
+    notifFrame.Size = UDim2.new(0, 300, 0, 60)
+    notifFrame.Position = UDim2.new(0.5, -150, 0, -70)
+    notifFrame.BackgroundColor3 = color or Color3.fromRGB(50, 50, 60)
+    notifFrame.Parent = notification
+    
+    local notifCorner = Instance.new("UICorner")
+    notifCorner.CornerRadius = UDim.new(0, 8)
+    notifCorner.Parent = notifFrame
+    
+    local notifText = Instance.new("TextLabel")
+    notifText.Size = UDim2.new(1, -20, 1, 0)
+    notifText.Position = UDim2.new(0, 10, 0, 0)
+    notifText.BackgroundTransparency = 1
+    notifText.Text = message
+    notifText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    notifText.TextSize = 14
+    notifText.Font = Enum.Font.Gotham
+    notifText.TextWrapped = true
+    notifText.Parent = notifFrame
+    
+    -- 动画显示
+    local showTween = TweenService:Create(notifFrame, 
+        TweenInfo.new(0.5, Enum.EasingStyle.Back), 
+        {Position = UDim2.new(0.5, -150, 0, 20)})
+    showTween:Play()
+    
+    -- 3秒后隐藏
+    wait(3)
+    local hideTween = TweenService:Create(notifFrame, 
+        TweenInfo.new(0.3, Enum.EasingStyle.Quad), 
+        {Position = UDim2.new(0.5, -150, 0, -70)})
+    hideTween:Play()
+    hideTween.Completed:Wait()
+    notification:Destroy()
+end
+
+-- 验证卡密
+local function verifyKey(key)
+    if not key or key == "" then
+        return false, "请输入卡密"
+    end
+    
+    -- 检查是否已使用
+    for _, usedKey in pairs(authSystem.usedKeys) do
+        if usedKey == key then
+            return false, "此卡密已被使用"
+        end
+    end
+    
+    -- 检查是否有效
+    for _, validKey in pairs(CONFIG.VALID_KEYS) do
+        if validKey == key then
+            table.insert(authSystem.usedKeys, key)
+            authSystem.currentUser = player.Name
+            return true, "验证成功!"
+        end
+    end
+    
+    return false, "卡密无效"
+end
+
+-- 启动脚本主功能（整合WindUI界面）
+local function startMainScript()
+    -- 这里放置你的主要脚本功能
+    showNotification("脚本已启动! 欢迎使用 " .. CONFIG.SCRIPT_NAME, Color3.fromRGB(0, 180, 0))
+    
+    -- 示例功能 - 你可以在这里添加你的脚本功能
+    print("脚本验证成功，开始运行主要功能...")
+    
+    -- ************** 以下是整合的WindUI界面代码 **************
+    local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Syndromehsh/Lua/refs/heads/main/AlienX/AlienX%20Wind%203.0%20UI.txt"))()
+
+    task.wait(2)
+
+    WindUI:Notify({
+        Title = "AlienX",
+        Content = "被遗弃",
+        Duration = 4
+    })
+
+    task.wait(0.5)
+
+    local player = game.Players.LocalPlayer
+
+    local Window = WindUI:CreateWindow({
+        Title = "AlienX<font color='#00FF00'>2.0</font> / 被遗弃",
+        Icon = "rbxassetid://4483362748",
+        IconTransparency = 1,
+        Author = "AlienX",
+        Folder = "AlienX",
+        Size = UDim2.fromOffset(100, 150),
+        Transparent = true,
+        Theme = "Dark",
+        UserEnabled = true,
+        SideBarWidth = 200,
+        HasOutline = true,
+        User = {
+            Enabled = true,
+            Anonymous = false,
+            Username = player.Name,
+            DisplayName = player.DisplayName,
+            UserId = player.UserId,
+            Thumbnail = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. player.UserId .. "&width=420&height=420&format=png",
+            Callback = function()
+                WindUI:Notify({
+                    Title = "用户信息",
+                    Content = "玩家: " .. player.Name .. " (" .. player.DisplayName .. ")",
+                    Duration = 3
+                })
+            end
+        }
+    })
+
+    task.wait(0.3)
+
+    Window:EditOpenButton({
+        Title = "AlienX",
+        Icon = "monitor",
+        CornerRadius = UDim.new(0,16),
+        StrokeThickness = 2,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromHex("FF0000")),
+            ColorSequenceKeypoint.new(0.16, Color3.fromHex("FF7F00")),
+            ColorSequenceKeypoint.new(0.33, Color3.fromHex("FFFF00")),
+            ColorSequenceKeypoint.new(0.5, Color3.fromHex("00FF00")),
+            ColorSequenceKeypoint.new(0.66, Color3.fromHex("0000FF")),
+            ColorSequenceKeypoint.new(0.83, Color3.fromHex("4B0082")),
+            ColorSequenceKeypoint.new(1, Color3.fromHex("9400D3"))
+        }),
+        Draggable = true,
+    })
+
+    task.wait(0.2)
+
+    local Tab = Window:Tab({
+        Title = "示例",
+        Icon = "settings",
+        Locked = false,
+    })
+
+    -- 1. 普通按钮
+    Tab:Button({
+        Title = "普通按钮",
+        Description = "这是一个普通按钮示例",
+        Callback = function()
+            WindUI:Notify({
+                Title = "按钮点击",
+                Content = "普通按钮被点击了！",
+                Duration = 2
+            })
+        end
+    })
+
+    -- 2. 带图标的按钮
+    Tab:Button({
+        Title = "带图标按钮",
+        Icon = "star",
+        Callback = function()
+            WindUI:Notify({
+                Title = "图标按钮",
+                Content = "带图标的按钮被点击",
+                Duration = 2
+            })
+        end
+    })
+
+    -- 3. 开关按钮 (Toggle)
+    Tab:Toggle({
+        Title = "开关功能",
+        Description = "启用或禁用某个功能",
+        Default = false,
+        Callback = function(Value)
+            if Value then
+                WindUI:Notify({
+                    Title = "功能状态",
+                    Content = "功能已启用",
+                    Duration = 2
+                })
+            else
+                WindUI:Notify({
+                    Title = "功能状态",
+                    Content = "功能已禁用",
+                    Duration = 2
+                })
+            end
+        end
+    })
+
+    -- 4. 修复滑块问题
+    -- 添加防抖机制，避免频繁触发回调
+    local lastSliderUpdate = 0
+    local sliderDebounce = 0.2 -- 防抖时间（秒）
+
+    Tab:Slider({
+        Title = "数值调整",
+        Description = "调整数值大小",
+        Default = 50,
+        Minimum = 0,
+        Maximum = 100,
+        Callback = function(Value)
+            -- 添加防抖机制，避免频繁触发通知
+            local currentTime = tick()
+            if currentTime - lastSliderUpdate >= sliderDebounce then
+                lastSliderUpdate = currentTime
+                WindUI:Notify({
+                    Title = "数值调整",
+                    Content = "当前数值: " .. Value,
+                    Duration = 1.5 -- 缩短持续时间
+                })
+            end
+        end
+    })
+
+    -- 5. 下拉选择框 (Dropdown)
+    Tab:Dropdown({
+        Title = "选项选择",
+        Description = "选择一个选项",
+        Default = "选项1",
+        Items = {"选项1", "选项2", "选项3", "选项4"},
+        Callback = function(Value)
+            WindUI:Notify({
+                Title = "选项选择",
+                Content = "选择了: " .. Value,
+                Duration = 2
+            })
+        end
+    })
+
+    -- 6. 文本输入框 (Textbox)
+    Tab:Textbox({
+        Title = "文本输入",
+        Description = "输入一些文字",
+        Default = "",
+        Placeholder = "请输入文字...",
+        Callback = function(Text)
+            WindUI:Notify({
+                Title = "文本输入",
+                Content = "输入的内容: " .. Text,
+                Duration = 3
+            })
+        end
+    })
+
+    -- 7. 按键绑定 (Keybind)
+    Tab:Keybind({
+        Title = "按键绑定",
+        Description = "设置一个快捷键",
+        Default = "F",
+        Callback = function(Key)
+            WindUI:Notify({
+                Title = "按键绑定",
+                Content = "按下了快捷键: " .. Key,
+                Duration = 2
+            })
+        end
+    })
+
+    -- 8. 标签 (Label)
+    Tab:Label({
+        Title = "信息标签",
+        Content = "这是一个信息标签，用于显示说明文字"
+    })
+
+    -- 9. 分割线 (Section)
+    Tab:Section({
+        Title = "功能分区",
+        Content = "这是一个功能分区示例"
+    })
+    -- ************** WindUI界面代码结束 **************
+end
+
+-- 主验证系统
+local function initializeAuthSystem()
+    local screenGui, mainFrame, keyInput, verifyButton, adminButton, statusLabel = createAuthGUI()
+    
+    -- 验证按钮点击事件
+    verifyButton.MouseButton1Click:Connect(function()
+        local inputKey = keyInput.Text
+        authSystem.attempts = authSystem.attempts + 1
+        
+        local success, message = verifyKey(inputKey)
+        
+        if success then
+            authSystem.isAuthenticated = true
+            statusLabel.Text = message
+            statusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+            
+            -- 延迟隐藏GUI并启动脚本
+            wait(1)
+            screenGui:Destroy()
+            startMainScript()
+        else
+            statusLabel.Text = message .. " (尝试 " .. authSystem.attempts .. "/" .. CONFIG.MAX_ATTEMPTS .. ")"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+            
+            -- 震动效果
+            local shakeTween = TweenService:Create(mainFrame,
+                TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 5, true),
+                {Position = UDim2.new(0.5, -205, 0.5, -125)})
+            shakeTween:Play()
+            shakeTween.Completed:Connect(function()
+                mainFrame.Position = UDim2.new(0.5, -200, 0.5, -125)
+            end)
+            
+            if authSystem.attempts >= CONFIG.MAX_ATTEMPTS then
+                wait(2)
+                statusLabel.Text = "尝试次数过多，脚本已退出"
+                wait(2)
+                screenGui:Destroy()
+                return
+            end
+        end
+        
+        keyInput.Text = ""
+    end)
+    
+    -- 管理员按钮点击事件
+    adminButton.MouseButton1Click:Connect(function()
+        -- 简单的管理员密码验证
+        local success = false
+        local attempts = 0
+        
+        repeat
+            attempts = attempts + 1
+            local password = ""
+            
+            -- 创建密码输入框
+            keyInput.PlaceholderText = "输入管理员密码..."
+            keyInput.Text = ""
+            
+            local passwordEntered = false
+            local connection
+            connection = keyInput.FocusLost:Connect(function(enterPressed)
+                if enterPressed then
+                    password = keyInput.Text
+                    passwordEntered = true
+                    connection:Disconnect()
+                end
+            end)
+            
+            -- 等待密码输入
+            while not passwordEntered do
+                wait(0.1)
+            end
+            
+            if password == CONFIG.ADMIN_PASSWORD then
+                success = true
+                authSystem.isAdmin = true
+                statusLabel.Text = "管理员验证成功!"
+                statusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+            else
+                statusLabel.Text = "管理员密码错误 (" .. attempts .. "/3)"
+                statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+                wait(1)
+            end
+        until success or attempts >= 3
+        
+        if success then
+            -- 打开管理面板
+            wait(1)
+            local adminGui, adminFrame, closeButton, newKeyInput, addKeyButton, keyListFrame, statsText = createAdminPanel()
+            
+            -- 更新统计信息
+            local function updateStats()
+                statsText.Text = "总卡密数: " .. #CONFIG.VALID_KEYS .. "\n已使用: " .. #authSystem.usedKeys .. "\n当前用户: " .. (authSystem.currentUser or "无")
+            end
+            
+            updateKeyList(keyListFrame)
+            updateStats()
+            
+            -- 关闭按钮
+            closeButton.MouseButton1Click:Connect(function()
+                adminGui:Destroy()
+            end)
+            
+            -- 添加卡密按钮
+            addKeyButton.MouseButton1Click:Connect(function()
+                local newKey = newKeyInput.Text
+                if newKey and newKey ~= "" then
+                    table.insert(CONFIG.VALID_KEYS, newKey)
+                    newKeyInput.Text = ""
+                    updateKeyList(keyListFrame)
+                    updateStats()
+                    showNotification("卡密 '" .. newKey .. "' 添加成功!", Color3.fromRGB(0, 180, 0))
+                end
+            end)
+            
+        else
+            statusLabel.Text = "管理员验证失败，返回普通模式"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            keyInput.PlaceholderText = "请输入卡密..."
+        end
+    end)
+    
+    -- Enter键快捷验证
+    keyInput.FocusLost:Connect(function(enterPressed)
+        if enterPressed and not authSystem.isAuthenticated then
+            verifyButton.MouseButton1Click:Fire()
+        end
+    end)
+end
+
+-- 启动验证系统
+print("正在加载卡密验证系统...")
+wait(1)
+initializeAuthSystem()
