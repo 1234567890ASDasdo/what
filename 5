@@ -1,0 +1,255 @@
+-- 自动循环传送脚本，看啥看，我知道你在看
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+
+-- ===== 配置区 =====
+local TARGET_POSITION = Vector3.new(-6077, 50.5, -6033)
+local LOOP_INTERVAL = 2
+local RANDOM_OFFSET = 2
+local MAX_TELEPORT_COUNT = 50  -- 最大传送次数，超过后自动暂停防检测
+
+-- ===== 全局变量 =====
+local isEnabled = false
+local loopThread = nil
+local teleportCount = 0
+-- 异常数据列表（会被自动过滤）
+local ANOMALY_POSITIONS = {
+    Vector3.new(0, -1000, 0),  -- 虚空
+    Vector3.new(99999, 99999, 99999),  -- 超界
+    Vector3.new(-99999, -99999, -99999)
+}
+
+-- ===== 创建 UI =====
+local function createUI()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "AutoTeleportGUI"
+    gui.ResetOnSpawn = false
+    gui.Parent = CoreGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 220, 0, 120)
+    frame.Position = UDim2.new(0, 30, 0, 150)
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    frame.BackgroundTransparency = 0.1
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Position = UDim2.new(0, 0, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "🌀 自动循环传送"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.Parent = frame
+
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0, 20)
+    statusLabel.Position = UDim2.new(0, 0, 0, 35)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "状态: 正常"
+    statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    statusLabel.TextSize = 12
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.Parent = frame
+
+    local countLabel = Instance.new("TextLabel")
+    countLabel.Size = UDim2.new(1, 0, 0, 20)
+    countLabel.Position = UDim2.new(0, 0, 0, 55)
+    countLabel.BackgroundTransparency = 1
+    countLabel.Text = "传送: 0次"
+    countLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    countLabel.TextSize = 12
+    countLabel.Font = Enum.Font.Gotham
+    countLabel.Parent = frame
+
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 140, 0, 35)
+    button.Position = UDim2.new(0.5, -70, 0, 80)
+    button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    button.Text = "🔴 关闭"
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextSize = 14
+    button.Font = Enum.Font.Gotham
+    button.Parent = frame
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = button
+
+    return gui, button, statusLabel, countLabel
+end
+
+-- ===== 防异常数据检测 =====
+local function isAnomalyPosition(pos)
+    -- 检查是否是 NaN 或无限大
+    if pos.X ~= pos.X or pos.Y ~= pos.Y or pos.Z ~= pos.Z then
+        return true
+    end
+    
+    -- 检查是否超出合理范围
+    if math.abs(pos.X) > 100000 or math.abs(pos.Y) > 100000 or math.abs(pos.Z) > 100000 then
+        return true
+    end
+    
+    -- 检查是否在异常列表中
+    for _, anomaly in ipairs(ANOMALY_POSITIONS) do
+        if (pos - anomaly).Magnitude < 10 then
+            return true
+        end
+    end
+    
+    return false
+end
+
+-- ===== 随机化行为防检测 =====
+local function randomizeBehavior()
+    -- 随机小移动
+    local char = LocalPlayer.Character
+    if char and char.HumanoidRootPart then
+        local randomMove = Vector3.new(
+            (math.random() - 0.5) * 0.5,
+            0,
+            (math.random() - 0.5) * 0.5
+        )
+        char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + randomMove
+    end
+    
+    -- 随机按键（模拟真人）
+    if math.random() < 0.3 then
+        VirtualUser:KeyDown(Enum.KeyCode.W)
+        task.wait(0.05)
+        VirtualUser:KeyUp(Enum.KeyCode.W)
+    end
+end
+
+-- ===== 传送函数（带异常过滤）=====
+local function teleportToTarget()
+    local char = LocalPlayer.Character
+    if not char or not char.HumanoidRootPart then return false end
+    
+    -- 检查目标是否异常
+    if isAnomalyPosition(TARGET_POSITION) then
+        print("⚠️ 检测到异常坐标，已阻止传送")
+        return false
+    end
+    
+    -- 生成随机偏移
+    local offset = Vector3.new(
+        (math.random() - 0.5) * RANDOM_OFFSET * 2,
+        0,
+        (math.random() - 0.5) * RANDOM_OFFSET * 2
+    )
+    
+    -- 检查偏移后是否异常
+    local targetPos = TARGET_POSITION + offset + Vector3.new(0, 3, 0)
+    if isAnomalyPosition(targetPos) then
+        print("⚠️ 偏移后坐标异常，使用原始坐标")
+        targetPos = TARGET_POSITION + Vector3.new(0, 3, 0)
+    end
+    
+    -- 执行传送
+    char:SetPrimaryPartCFrame(CFrame.new(targetPos))
+    
+    -- 传送后随机行为
+    randomizeBehavior()
+    
+    return true
+end
+
+-- ===== 循环传送 =====
+local function startLoop(statusLabel, countLabel)
+    if loopThread then
+        coroutine.close(loopThread)
+        loopThread = nil
+    end
+
+    loopThread = coroutine.create(function()
+        teleportCount = 0
+        local errorCount = 0
+        
+        while isEnabled do
+            -- 传送次数保护
+            if teleportCount >= MAX_TELEPORT_COUNT then
+                statusLabel.Text = "状态: 暂停保护"
+                statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                print("⏸️ 已达最大传送次数，暂停30秒")
+                task.wait(30)
+                teleportCount = 0
+                statusLabel.Text = "状态: 正常"
+                statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            end
+            
+            -- 执行传送
+            local success = teleportToTarget()
+            
+            if success then
+                teleportCount = teleportCount + 1
+                countLabel.Text = "传送: " .. teleportCount .. "次"
+                print("🌀 已传送（第" .. teleportCount .. "次）")
+                errorCount = 0
+            else
+                errorCount = errorCount + 1
+                if errorCount >= 3 then
+                    print("❌ 连续异常，暂停10秒")
+                    task.wait(10)
+                    errorCount = 0
+                end
+            end
+            
+            -- 随机化等待时间（更自然的间隔）
+            local baseWait = LOOP_INTERVAL
+            local randomFactor = (math.random() - 0.5) * 1.5
+            local extraWait = 0
+            
+            -- 偶尔多等一会儿
+            if math.random() < 0.2 then
+                extraWait = math.random() * 2
+            end
+            
+            local waitTime = math.max(1, baseWait + randomFactor + extraWait)
+            task.wait(waitTime)
+        end
+    end)
+
+    coroutine.resume(loopThread)
+end
+
+-- ===== 初始化 =====
+local gui, button, statusLabel, countLabel = createUI()
+
+button.MouseButton1Click:Connect(function()
+    isEnabled = not isEnabled
+
+    if isEnabled then
+        button.Text = "🟢 开启"
+        button.BackgroundColor3 = Color3.fromRGB(0, 130, 0)
+        statusLabel.Text = "状态: 运行中"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        print("✅ 自动传送已开启")
+        startLoop(statusLabel, countLabel)
+    else
+        button.Text = "🔴 关闭"
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        statusLabel.Text = "状态: 已关闭"
+        statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        print("⏹️ 自动传送已关闭")
+        if loopThread then
+            coroutine.close(loopThread)
+            loopThread = nil
+        end
+    end
+end)
+
+print("🚀 自动循环传送 UI 已加载（防检测 + 异常数据处理）")
